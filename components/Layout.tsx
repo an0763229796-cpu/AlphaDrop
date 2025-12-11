@@ -54,7 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Database size={14} />
               <span>API Connected</span>
             </div>
-            <p>Using Gemini 2.5 Flash</p>
+            <p></p>
           </div>
         </div>
       </aside>
