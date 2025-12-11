@@ -6,6 +6,7 @@ import Analyzer from './pages/Analyzer';
 import Tracker from './pages/Tracker';
 import Discovery from './pages/Discovery';
 import ProjectDetails from './pages/ProjectDetails';
+import FundingReport from './pages/FundingReport';
 
 const App: React.FC = () => {
   return (
@@ -16,6 +17,7 @@ const App: React.FC = () => {
           <Route path="/analyzer" element={<Analyzer />} />
           <Route path="/tracker" element={<Tracker />} />
           <Route path="/signals" element={<Discovery />} />
+          <Route path="/funding-dna" element={<FundingReport />} />
           <Route path="/project/:id" element={<ProjectDetails />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

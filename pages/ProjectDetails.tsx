@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, ExternalLink, Activity, Users, Zap, Plus, Save, Loader2, Calendar, Play, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle, ExternalLink, Activity, Users, Zap, Plus, Save, Loader2, Calendar, Play, RefreshCw, Sparkles, AlertTriangle, Trophy, Share2 } from 'lucide-react';
 import { StoredProject, FarmingTask } from '../types';
 import { getProjectById, saveProject } from '../services/storageService';
 import { analyzeProjectWithGemini } from '../services/geminiService';
@@ -18,11 +18,7 @@ const ProjectDetails: React.FC = () => {
     const loadProject = async () => {
       if (id) {
         const data = await getProjectById(id);
-        if (data) {
-           setProject(data);
-        } else {
-           console.error("Project not found");
-        }
+        if (data) setProject(data);
       }
       setLoading(false);
     };
@@ -36,315 +32,258 @@ const ProjectDetails: React.FC = () => {
     setIsSaving(false);
   };
 
-  const handleStartFarming = () => {
-    if (!project) return;
-    const updated: StoredProject = {
-      ...project,
-      status: 'farming',
-      startDate: project.startDate || new Date().toISOString().split('T')[0]
-    };
-    handleSave(updated);
-  };
-
   const handleRunAnalysis = async (refresh: boolean = false) => {
     if (!project) return;
     setIsAnalyzing(true);
     try {
-      // Pass refresh=true to skip cache
       const analysis = await analyzeProjectWithGemini(project.name, refresh);
-      
       const updated: StoredProject = {
         ...project,
         analysis: analysis,
-        tier: analysis.score >= 8 ? 'S' : analysis.score >= 6 ? 'A' : 'B'
+        tier: analysis.verdict.score >= 8 ? 'S' : analysis.verdict.score >= 6 ? 'A' : 'B',
+        notes: analysis.tldr.summary // Auto fill notes with summary
       };
       
+      // Auto-populate tasks if empty
+      if (project.tasks.length === 0 && analysis.verdict.actionPlan.length > 0) {
+        updated.tasks = analysis.verdict.actionPlan.map((step, i) => ({
+          id: `auto-${Date.now()}-${i}`,
+          title: step,
+          status: 'todo',
+          priority: i === 0 ? 'high' : 'medium'
+        }));
+      }
+
       await handleSave(updated);
     } catch (error) {
       console.error("Analysis update failed", error);
-      alert("Failed to update analysis. Please try again.");
+      alert("Analysis failed. Please try again later.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleAddTask = () => {
-    if (!newTaskTitle.trim() || !project) return;
-    const newTask: FarmingTask = {
-      id: Date.now().toString(),
-      title: newTaskTitle,
-      status: 'todo',
-      priority: 'medium'
-    };
-    const updated = {
-      ...project,
-      tasks: [...project.tasks, newTask]
-    };
-    handleSave(updated);
-    setNewTaskTitle('');
+  // Helper: Status Badge
+  const StatusBadge = ({ status }: { status: string }) => {
+    const color = status === 'Live' ? 'bg-green-900 text-green-200' : status === 'Unreleased' ? 'bg-blue-900 text-blue-200' : 'bg-slate-700 text-slate-300';
+    return <span className={`text-xs px-2 py-1 rounded font-bold uppercase ${color}`}>{status}</span>;
   };
 
-  const toggleTaskStatus = (taskId: string) => {
-    if (!project) return;
-    
-    const updatedTasks = project.tasks.map(t => {
-        if (t.id === taskId) {
-           const newStatus: 'todo' | 'done' = t.status === 'done' ? 'todo' : 'done';
-           return { ...t, status: newStatus };
-        }
-        return t;
-    });
-
-    const updated: StoredProject = {
-      ...project,
-      tasks: updatedTasks
-    };
-
-    handleSave(updated);
-  };
-  
-  const handleDateChange = (field: 'startDate' | 'targetDate', value: string) => {
-    if (!project) return;
-    const updated = { ...project, [field]: value };
-    handleSave(updated);
+  // Helper: Score Badge
+  const ScoreBadge = ({ score }: { score: number }) => {
+    const color = score >= 8 ? 'text-green-400' : score >= 5 ? 'text-yellow-400' : 'text-red-400';
+    return <span className={`text-3xl font-black ${color}`}>{score}<span className="text-sm text-slate-500">/10</span></span>;
   };
 
   if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-primary" size={32} /></div>;
   if (!project) return <div className="p-10 text-center">Project not found.</div>;
 
+  const analysis = project.analysis;
+
   return (
-    <div className="space-y-6 animate-fade-in pb-10">
-      {/* Header */}
+    <div className="space-y-6 pb-20 max-w-7xl mx-auto">
+      {/* Navigation */}
       <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-slate-400 hover:text-white transition">
-        <ArrowLeft size={18} /> Back
+        <ArrowLeft size={18} /> Back to Tracker
       </button>
 
-      <div className="bg-surface border border-slate-700 rounded-xl p-6 md:p-8 relative overflow-hidden">
-        <div className="relative z-10 flex flex-col md:flex-row justify-between gap-6">
-          <div className="flex-1">
-            <div className="flex items-center gap-4 mb-2">
+      {/* Header Section */}
+      <div className="bg-surface border border-slate-700 rounded-xl p-6 relative overflow-hidden">
+        <div className="relative z-10 flex flex-col md:flex-row gap-6 justify-between">
+          <div className="space-y-4 flex-1">
+            <div className="flex items-center gap-4 flex-wrap">
               <h1 className="text-4xl font-bold text-white">{project.name}</h1>
-              <span className={`px-3 py-1 rounded-lg font-bold text-sm border ${
-                project.tier === 'S' ? 'bg-purple-900/50 text-purple-200 border-purple-500' : 
-                'bg-blue-900/50 text-blue-200 border-blue-500'
-              }`}>
-                Tier {project.tier}
-              </span>
-              <span className={`px-3 py-1 rounded-lg text-sm border font-medium uppercase ${
-                project.status === 'farming' 
-                  ? 'bg-green-900/30 text-green-400 border-green-800'
-                  : 'bg-slate-800 text-slate-300 border-slate-600'
-              }`}>
-                {project.status}
-              </span>
+              {analysis && <span className="bg-slate-800 border border-slate-600 px-3 py-1 rounded text-sm text-slate-300">{analysis.overview.category}</span>}
+              <span className={`px-3 py-1 rounded text-sm font-bold border ${project.tier === 'S' ? 'border-purple-500 text-purple-300 bg-purple-900/20' : 'border-slate-600 text-slate-400'}`}>Tier {project.tier}</span>
             </div>
             
-            {project.analysis ? (
-              <div className="flex items-start gap-2 mb-4">
-                <p className="text-xl text-slate-300 max-w-2xl">{project.analysis.narrative}</p>
-                <button 
-                  onClick={() => handleRunAnalysis(true)} 
-                  disabled={isAnalyzing}
-                  title="Refresh Intelligence with latest news"
-                  className="mt-1 p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-primary transition"
-                >
-                  <RefreshCw size={14} className={isAnalyzing ? 'animate-spin' : ''} />
-                </button>
+            {analysis ? (
+              <div className="space-y-4">
+                 <p className="text-lg text-slate-300 leading-relaxed max-w-3xl">{analysis.tldr.summary}</p>
+                 <div className="flex gap-4 text-sm text-slate-400">
+                    {analysis.overview.socials.website && <a href={analysis.overview.socials.website} target="_blank" className="hover:text-primary flex items-center gap-1"><ExternalLink size={14}/> Website</a>}
+                    {analysis.overview.socials.twitter && <a href={analysis.overview.socials.twitter} target="_blank" className="hover:text-primary flex items-center gap-1"><ExternalLink size={14}/> Twitter</a>}
+                 </div>
               </div>
             ) : (
-              <div className="mb-4">
-                <p className="text-slate-400 italic mb-2">Manual entry. Run AI to get insights.</p>
-                <button 
-                  onClick={() => handleRunAnalysis(false)}
-                  disabled={isAnalyzing}
-                  className="bg-secondary/20 hover:bg-secondary/30 text-secondary border border-secondary/50 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold transition"
-                >
-                  {isAnalyzing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                  {isAnalyzing ? 'Analyzing...' : 'Run Initial AI Analysis'}
-                </button>
-              </div>
+              <p className="text-slate-500 italic">Analysis data pending. Run AI Scan to populate.</p>
             )}
-            
-            {/* Date & Action Configuration */}
-            <div className="flex flex-wrap gap-6 mt-6 items-end">
-               <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-500 uppercase font-bold flex items-center gap-1">
-                     <Calendar size={12} /> Start Date
-                  </label>
-                  <input 
-                     type="date" 
-                     className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:border-primary outline-none"
-                     value={project.startDate || ''}
-                     onChange={(e) => handleDateChange('startDate', e.target.value)}
-                  />
-               </div>
-               <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-500 uppercase font-bold flex items-center gap-1">
-                     <Calendar size={12} /> Target / Airdrop
-                  </label>
-                  <input 
-                     type="date" 
-                     className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:border-secondary outline-none"
-                     value={project.targetDate || ''}
-                     onChange={(e) => handleDateChange('targetDate', e.target.value)}
-                  />
-               </div>
-               
-               {project.status === 'researching' && (
-                 <button 
-                   onClick={handleStartFarming}
-                   className="bg-primary hover:bg-primary/90 text-white px-5 py-1.5 rounded-lg font-bold shadow-lg shadow-primary/20 transition flex items-center gap-2 h-[34px]"
-                 >
-                   <Play size={16} className="fill-current" /> Start Farming
-                 </button>
-               )}
 
-               {isSaving && <div className="text-xs text-slate-400 flex items-center gap-1 mb-2 ml-auto"><Save size={12} className="animate-pulse" /> Saving...</div>}
-            </div>
-          </div>
-
-          {project.analysis && (
-             <div className="flex flex-col items-center justify-center bg-slate-900/80 p-6 rounded-xl border border-slate-700 backdrop-blur-sm">
-                <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">AZ9 Score</span>
-                <span className={`text-5xl font-black ${project.analysis.score >= 8 ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {project.analysis.score}
-                </span>
-             </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Col: Analysis & Signals */}
-        <div className="lg:col-span-2 space-y-6">
-           {/* Signals */}
-           {project.analysis ? (
-             <>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-surface/50 border border-slate-700 p-4 rounded-xl">
-                     <div className="flex items-center gap-2 text-slate-400 mb-2 font-semibold text-sm uppercase">
-                       <Users size={16} /> Smart Money
-                     </div>
-                     <p className="text-sm text-slate-200">{project.analysis.signals.smartMoney}</p>
-                  </div>
-                  <div className="bg-surface/50 border border-slate-700 p-4 rounded-xl">
-                     <div className="flex items-center gap-2 text-slate-400 mb-2 font-semibold text-sm uppercase">
-                       <Activity size={16} /> Community
-                     </div>
-                     <p className="text-sm text-slate-200">{project.analysis.signals.community}</p>
-                  </div>
-                  <div className="bg-surface/50 border border-slate-700 p-4 rounded-xl">
-                     <div className="flex items-center gap-2 text-slate-400 mb-2 font-semibold text-sm uppercase">
-                       <Zap size={16} /> Stage
-                     </div>
-                     <p className="text-sm text-slate-200">{project.analysis.signals.stage}</p>
-                  </div>
-               </div>
-
-               <div className="bg-surface border border-slate-700 rounded-xl p-6">
-                 <h3 className="text-xl font-bold text-white mb-4">Recommended Strategy</h3>
-                 <div className="space-y-4">
-                   {project.analysis.strategy.map((step, idx) => (
-                     <div key={idx} className="flex gap-4 p-3 bg-slate-800/30 rounded-lg">
-                       <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-sm flex-shrink-0">
-                         {idx + 1}
-                       </div>
-                       <p className="text-slate-300 text-sm">{step}</p>
-                     </div>
-                   ))}
-                 </div>
-               </div>
-               
-               <div className="bg-surface border border-slate-700 rounded-xl p-6">
-                 <h3 className="text-xl font-bold text-white mb-2">Researcher Verdict</h3>
-                 <p className="text-slate-300 leading-relaxed">{project.analysis.verdict}</p>
-               </div>
-             </>
-           ) : (
-             <div className="bg-surface border border-slate-700 rounded-xl p-10 flex flex-col items-center justify-center text-center space-y-4">
-               <div className="p-4 bg-slate-800 rounded-full text-slate-500">
-                  <Sparkles size={32} />
-               </div>
-               <div>
-                  <h3 className="text-lg font-bold text-white">No AI Analysis Yet</h3>
-                  <p className="text-slate-400 max-w-md mx-auto mt-2">
-                    Click the "Run Initial AI Analysis" button above to let Gemini research this project's narrative, funding, and strategy using the AZ9 methodology.
-                  </p>
-               </div>
-             </div>
-           )}
-        </div>
-
-        {/* Right Col: Tasks & Notes */}
-        <div className="space-y-6">
-          <div className="bg-surface border border-slate-700 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-white mb-4 flex justify-between items-center">
-              Farming Checklist
-              <span className="text-xs font-normal text-slate-400">
-                {project.tasks.filter(t => t.status === 'done').length}/{project.tasks.length}
-              </span>
-            </h3>
-            
-            <div className="space-y-2 mb-4">
-              {project.tasks.map((task) => (
-                <div 
-                  key={task.id}
-                  onClick={() => toggleTaskStatus(task.id)}
-                  className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-3 ${
-                    task.status === 'done' 
-                    ? 'bg-slate-900/50 border-slate-800 opacity-60' 
-                    : 'bg-slate-800/50 border-slate-700 hover:border-primary/50'
-                  }`}
-                >
-                  <div className={`mt-0.5 ${task.status === 'done' ? 'text-green-500' : 'text-slate-600'}`}>
-                    <CheckCircle size={18} className={task.status === 'done' ? 'fill-current' : ''} />
-                  </div>
-                  <span className={`text-sm ${task.status === 'done' ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
-                    {task.title}
-                  </span>
-                </div>
-              ))}
-              
-              {project.tasks.length === 0 && (
-                <p className="text-center text-slate-500 py-4 text-sm">No tasks yet. Add one below.</p>
-              )}
-            </div>
-
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddTask()}
-                placeholder="Add new task..."
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-              />
+            <div className="flex gap-3 pt-2">
               <button 
-                onClick={handleAddTask}
-                className="bg-primary hover:bg-primary/90 text-white p-2 rounded-lg"
+                onClick={() => handleRunAnalysis(true)}
+                disabled={isAnalyzing}
+                className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition disabled:opacity-50"
               >
-                <Plus size={18} />
+                {isAnalyzing ? <Loader2 className="animate-spin" size={18}/> : <RefreshCw size={18}/>}
+                {analysis ? "Update Analysis" : "Run Full Analysis"}
               </button>
             </div>
           </div>
 
-          {project.analysis?.sources && project.analysis.sources.length > 0 && (
-            <div className="bg-surface border border-slate-700 rounded-xl p-6">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Sources</h3>
-              <ul className="space-y-2">
-                {project.analysis.sources.map((src, i) => (
-                   <li key={i}>
-                     <a href={src.uri} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm truncate">
-                       <ExternalLink size={14} />
-                       <span className="truncate">{src.title}</span>
-                     </a>
-                   </li>
-                ))}
-              </ul>
+          {/* Score Card */}
+          {analysis && (
+            <div className="bg-slate-900/50 border border-slate-700 p-6 rounded-xl flex flex-col items-center justify-center min-w-[150px]">
+              <span className="text-xs uppercase font-bold text-slate-500 mb-2">Potential</span>
+              <ScoreBadge score={analysis.verdict.score} />
+              <div className="mt-2 text-xs font-bold px-2 py-1 rounded bg-slate-800 text-slate-300">
+                {analysis.tldr.quickVerdict} Verdict
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {analysis ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* LEFT COLUMN (2/3) */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* 1. Funding & Backers */}
+            <section className="bg-surface border border-slate-700 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <Users className="text-blue-400" /> Funding & Backers
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="bg-slate-800/50 p-4 rounded-lg">
+                  <p className="text-xs text-slate-500 uppercase font-bold">Has Tier 1 Backing?</p>
+                  <p className={`text-lg font-bold ${analysis.funding.hasTier1Backing ? 'text-green-400' : 'text-slate-400'}`}>
+                    {analysis.funding.hasTier1Backing ? "Yes, Confirmed" : "Not Detected"}
+                  </p>
+                </div>
+                <div className="bg-slate-800/50 p-4 rounded-lg">
+                  <p className="text-xs text-slate-500 uppercase font-bold">Key Investors</p>
+                  <p className="text-slate-200">{analysis.funding.keyBackers.join(", ") || "Unknown"}</p>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left text-slate-400">
+                  <thead className="text-xs text-slate-500 uppercase bg-slate-800/50">
+                    <tr>
+                      <th className="px-4 py-2 rounded-l-lg">Stage</th>
+                      <th className="px-4 py-2">Date</th>
+                      <th className="px-4 py-2">Amount</th>
+                      <th className="px-4 py-2 rounded-r-lg">Investors</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analysis.funding.rounds.length > 0 ? analysis.funding.rounds.map((round, i) => (
+                      <tr key={i} className="border-b border-slate-700/50 last:border-0">
+                        <td className="px-4 py-3 font-medium text-white">{round.stage}</td>
+                        <td className="px-4 py-3">{round.date || "-"}</td>
+                        <td className="px-4 py-3">{round.amount}</td>
+                        <td className="px-4 py-3">{round.investors.join(", ")}</td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={4} className="px-4 py-3 text-center italic">No public funding rounds found.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {/* 2. Tokenomics & Airdrop */}
+            <section className="bg-surface border border-slate-700 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <Trophy className="text-yellow-400" /> Tokenomics & Airdrop Strategy
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div className="bg-slate-800/50 p-3 rounded-lg">
+                   <p className="text-xs text-slate-500 uppercase">Token Status</p>
+                   <StatusBadge status={analysis.tokenomics.tokenStatus} />
+                </div>
+                <div className="bg-slate-800/50 p-3 rounded-lg">
+                   <p className="text-xs text-slate-500 uppercase">Ticker</p>
+                   <p className="font-mono text-white">{analysis.tokenomics.ticker || "TBD"}</p>
+                </div>
+                <div className="bg-slate-800/50 p-3 rounded-lg">
+                   <p className="text-xs text-slate-500 uppercase">Sentiment</p>
+                   <p className={`font-bold ${analysis.sentiment.twitterVibe === 'Positive' ? 'text-green-400' : 'text-slate-300'}`}>{analysis.sentiment.twitterVibe}</p>
+                </div>
+              </div>
+              <div className="bg-blue-900/20 border border-blue-900/50 p-4 rounded-lg">
+                 <h4 className="font-bold text-blue-200 text-sm mb-2">Airdrop Prediction</h4>
+                 <p className="text-slate-300 text-sm leading-relaxed">{analysis.tokenomics.airdropPrediction}</p>
+              </div>
+            </section>
+
+            {/* 3. Tech & Risks */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <section className="bg-surface border border-slate-700 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Zap className="text-purple-400"/> Tech</h3>
+                <ul className="space-y-2 text-sm text-slate-300">
+                   <li><span className="text-slate-500">Chain:</span> {analysis.tech.chain}</li>
+                   <li><span className="text-slate-500">Moat:</span> {analysis.tech.differentiation}</li>
+                   <li><span className="text-slate-500">TVL:</span> {analysis.metrics.tvl || "N/A"}</li>
+                </ul>
+              </section>
+              <section className="bg-surface border border-slate-700 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><AlertTriangle className="text-red-400"/> Risks</h3>
+                <ul className="list-disc list-inside space-y-1 text-sm text-slate-300">
+                  {analysis.risks.map((risk, i) => (
+                    <li key={i}>{risk}</li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN (1/3) */}
+          <div className="space-y-6">
+             {/* Verdict & Action */}
+             <div className="bg-surface border border-slate-700 rounded-xl p-6 shadow-xl shadow-black/20">
+                <h3 className="text-lg font-bold text-white mb-4">Analyst Verdict</h3>
+                <p className="text-sm text-slate-300 mb-6 italic">"{analysis.verdict.finalThoughts}"</p>
+                
+                <h4 className="text-sm font-bold text-primary uppercase tracking-wider mb-3">Action Plan</h4>
+                <div className="space-y-3">
+                   {analysis.verdict.actionPlan.map((step, i) => (
+                     <div key={i} className="flex gap-3 text-sm">
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs border border-slate-600">
+                          {i+1}
+                        </div>
+                        <p className="text-slate-200">{step}</p>
+                     </div>
+                   ))}
+                </div>
+             </div>
+
+             {/* Tasks Manager */}
+             <div className="bg-surface border border-slate-700 rounded-xl p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-white">My Tasks</h3>
+                  <button className="text-slate-400 hover:text-white"><Plus size={18}/></button>
+                </div>
+                <div className="space-y-2">
+                   {project.tasks.map(task => (
+                      <div key={task.id} className="flex items-center gap-3 p-2 hover:bg-slate-800 rounded cursor-pointer">
+                         <div className={`w-4 h-4 rounded border ${task.status === 'done' ? 'bg-green-500 border-green-500' : 'border-slate-500'}`}></div>
+                         <span className={`text-sm ${task.status === 'done' ? 'text-slate-500 line-through' : 'text-slate-300'}`}>{task.title}</span>
+                      </div>
+                   ))}
+                   {project.tasks.length === 0 && <p className="text-sm text-slate-500 text-center">No tasks tracked.</p>}
+                </div>
+             </div>
+
+             {/* Sources */}
+             <div className="bg-surface border border-slate-700 rounded-xl p-6">
+               <h3 className="text-sm font-bold text-slate-500 uppercase mb-3">Sources</h3>
+               <div className="flex flex-wrap gap-2">
+                  {analysis.sources.slice(0, 10).map((src, i) => (
+                    <a key={i} href={src.uri} target="_blank" className="text-xs bg-slate-800 text-blue-400 px-2 py-1 rounded hover:bg-slate-700 truncate max-w-full block">
+                      {src.title}
+                    </a>
+                  ))}
+               </div>
+             </div>
+          </div>
+        </div>
+      ) : (
+        // Empty State
+        <div className="text-center py-20 text-slate-500">
+           <p>Analysis details will appear here after running the scan.</p>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Search, ListTodo, Zap, Database } from 'lucide-react';
+import { LayoutDashboard, Search, ListTodo, Zap, Database, PieChart } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -14,6 +14,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/analyzer', label: 'AI Analyzer', icon: <Search size={20} /> },
     { path: '/tracker', label: 'Farm Tracker', icon: <ListTodo size={20} /> },
     { path: '/signals', label: 'Early Signals', icon: <Zap size={20} /> },
+    { path: '/funding-dna', label: 'Funding DNA', icon: <PieChart size={20} /> },
   ];
 
   return (
